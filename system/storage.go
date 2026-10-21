@@ -85,6 +85,29 @@ func FindAvailableServer(db *sql.DB, region string) (*Server, error) {
 	err := db.QueryRow(`SELECT ServerID, Region, Status FROM servers WHERE Status='AVAILABLE' AND Region=? ORDER BY ServerID LIMIT 1`, region).Scan(&s.ID, &s.Region, &s.status)
 	return s, err
 }
+
+func GetAvailableServers(db *sql.DB) ([]*Server, error) {
+	rows, err := db.Query(`SELECT ServerID, Region, Status FROM servers WHERE Status = 'AVAILABLE' ORDER BY	ServerID`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var servers []*Server
+	for rows.Next() {
+		s := &Server{}
+		if err := rows.Scan(&s.ID, &s.Region, &s.status); err != nil {
+			return nil, err
+		}
+		servers = append(servers, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return servers, nil
+}
 func UpdateServer(db *sql.DB, s *Server) error {
 	_, err := db.Exec(`UPDATE servers SET Status=? WHERE ServerID=?`, s.status, s.ID)
 	return err
@@ -134,4 +157,15 @@ func FindProgress(db *sql.DB, id int) (string, error) {
 	var status string
 	err := db.QueryRow(`SELECT Status FROM match_progress WHERE ClaimID=?`, id).Scan(&status)
 	return status, err
+}
+
+// For strategy
+
+func CountActiveAllocations(db *sql.DB, serverID int) (int, error) {
+	count := 0
+	err := db.QueryRow(`SELECT COUNT(*) FROM allocations WHERE ServerID = ? AND status = 'ALLOCATED'`, serverID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }

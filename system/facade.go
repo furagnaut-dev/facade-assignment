@@ -66,7 +66,6 @@ func (f *MatchmakingFacade) CreateMatch(req MatchRequest) (MatchResult, error) {
 	return result, f.Resume(id, req)
 }
 
-// Resume decides the next action from SQLite's persisted progress, not an in-memory flag.
 func (f *MatchmakingFacade) Resume(id int, req MatchRequest) error {
 	status, err := FindProgress(f.db, id)
 	if err != nil {
@@ -81,6 +80,9 @@ func (f *MatchmakingFacade) Resume(id int, req MatchRequest) error {
 			}
 			return err
 		}
+		if err := SaveProgress(f.db, id, ChainPendingC); err != nil {
+			return err
+		}
 		status = ChainPendingC
 	}
 	if status == ChainPendingC {
@@ -91,6 +93,9 @@ func (f *MatchmakingFacade) Resume(id int, req MatchRequest) error {
 			if bErr != nil || aErr != nil {
 				return fmt.Errorf("C failed: %v; B compensation: %v; A compensation: %v", err, bErr, aErr)
 			}
+			return err
+		}
+		if err := SaveProgress(f.db, id, ChainCompleted); err != nil {
 			return err
 		}
 	}
@@ -143,7 +148,6 @@ func (f *MatchmakingFacade) List() ([]MatchState, error) {
 	return out, rows.Err()
 }
 
-// AdminFacade provides inspection and explicit manual compensation for an administrator.
 type AdminFacade struct{ workflow *MatchmakingFacade }
 
 func NewAdminFacade(db *sql.DB) *AdminFacade              { return &AdminFacade{workflow: NewMatchmakingFacade(db)} }
@@ -167,4 +171,24 @@ func (a *AdminFacade) Compensate(id int) error {
 		}
 	}
 	return SaveProgress(a.workflow.db, id, ChainCompensated)
+}
+
+func (a *AdminFacade) ListByChainStatus(status string) ([]MatchState, error) {
+	all, err := a.workflow.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []MatchState
+	for _, s := range all {
+		if s.ChainStatus == status {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+func (f *MatchmakingFacade) CreateMatchSkipC(req MatchRequest) (MatchResult, error) {
+	id, _ := f.BeginMatch(req)
+	result := MatchResult{ClaimID: id}
+	return result, SaveProgress(f.db, id, ChainCompleted)
 }

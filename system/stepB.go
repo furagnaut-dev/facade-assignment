@@ -55,21 +55,49 @@ func (l LatencyChecker) Check(ms int) error {
 type ServerAllocator struct {
 	db      *sql.DB
 	latency LatencyChecker
+	strategySelector *ServerStrategySelector
 }
 
 func NewServerAllocator(db *sql.DB) *ServerAllocator {
-	return &ServerAllocator{db: db, latency: LatencyChecker{MaxLatencyMS: 150}}
+	strategySelector := NewServerStrategySelector()
+
+	strategySelector.Register(ModeNearestRegion, &NearestRegion{})
+	strategySelector.Register(ModeLowestLoad, NewLowestLoad(db))
+	strategySelector.Register(ModeRoundRobin, &RoundRobinStrategy{})
+	return &ServerAllocator{db: db, latency: LatencyChecker{MaxLatencyMS: 150}, strategySelector: strategySelector}
 }
+
+func (s *ServerAllocator) selectServer(region string, servers []*Server, mode SelectionMode) (*Server, error) {
+    req := SelectionRequest{
+        Region:  region,
+        Servers: servers,
+        Mode:    mode,
+    }
+
+    strategy, err := s.strategySelector.Choose(mode)
+    if err != nil {
+        return nil, err
+    }
+
+    selector := NewServerSelector(strategy)
+    return selector.Select(req)
+}
+
 func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) error {
 	if err := s.latency.Check(latencyMS); err != nil {
 		return err
 	}
-	server, err := FindAvailableServer(s.db, region)
+	availableServers, err := GetAvailableServers(s.db)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNoServer
-		}
 		return err
+	}
+	server, err := s.selectServer(
+    	region,
+    	availableServers,
+    	ModeLowestLoad,
+	)
+	if err != nil {
+    	return err
 	}
 	server.status = "BUSY"
 	if err := UpdateServer(s.db, server); err != nil {
@@ -81,7 +109,7 @@ func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) err
 		_ = UpdateServer(s.db, server)
 		return err
 	}
-	return SaveProgress(s.db, claimID, ChainPendingC)
+	return nil
 }
 func (s *ServerAllocator) Compensate(claimID int) error {
 	a, err := FindAllocation(s.db, claimID)
@@ -100,3 +128,4 @@ func (s *ServerAllocator) Compensate(claimID int) error {
 	server := &Server{ID: a.ServerID, status: "AVAILABLE"}
 	return UpdateServer(s.db, server)
 }
+

@@ -59,5 +59,5 @@ func (l *SessionLogger) Finalize(claimID int, forceCheatDetection bool) error {
 	if err := SaveSession(l.db, s); err != nil {
 		return err
 	}
-	return SaveProgress(l.db, claimID, ChainCompleted)
+	return nil
 }

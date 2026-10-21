@@ -43,24 +43,27 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	for id, region := range []string{na, sa, as, eu, me} {
-		if err := system.SaveServer(db, system.NewServer(id+1, region)); err != nil {
-			log.Fatal(err)
+	for i := 0; i < 3; i++ {
+		for r, region := range []string{na, sa, as, eu, me} {
+			if err := system.SaveServer(db, system.NewServer(i*5+r+1, region)); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	workflow := system.NewMatchmakingFacade(db)
 	admin := system.NewAdminFacade(db)
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		fmt.Println("\nMatchmaking")
+		fmt.Println("\n Matchmaking ")
 		fmt.Println("1. Create match (success)")
 		fmt.Println("2. Demo B failure (high latency; compensates A)")
 		fmt.Println("3. Demo C failure (anti-cheat; compensates B then A)")
 		fmt.Println("4. Inspect persisted match")
 		fmt.Println("5. List matches")
 		fmt.Println("6. Admin: compensate pending match")
+		fmt.Println("7. Without c varant")
 		fmt.Println("0. Exit")
-		fmt.Print("> ")
+		fmt.Print("Your choice: ")
 		if !scanner.Scan() {
 			return
 		}
@@ -113,6 +116,10 @@ func main() {
 			} else {
 				fmt.Println("Compensation saved.")
 			}
+		case "7":
+			req, _ := readRequest(scanner, "1")
+			result, _ := workflow.CreateMatchSkipC(req)
+			fmt.Println("Step C ignored, in B match BUSY, and A compensated, result: ", result)
 		case "0":
 			return
 		default:
