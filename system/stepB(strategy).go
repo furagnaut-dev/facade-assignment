@@ -7,22 +7,24 @@ import (
 )
 
 type SelectionMode string
+
 var (
 	ErrUnknownStrategy = errors.New("unknown strategy")
 )
+
 const (
 	ModeNearestRegion SelectionMode = "nearest"
-	ModeLowestLoad SelectionMode = "lowest_load"
-	ModeRoundRobin SelectionMode = "round_robin"
+	ModeLowestLoad    SelectionMode = "lowest_load"
+	ModeRoundRobin    SelectionMode = "round_robin"
 )
 
 type SelectionRequest struct {
-	Region string
+	Region  string
 	Servers []*Server
-	Mode SelectionMode
+	Mode    SelectionMode
 }
 
-type ServerSelectionStrategy interface{
+type ServerSelectionStrategy interface {
 	Select(req SelectionRequest) (*Server, error)
 }
 
@@ -38,8 +40,7 @@ func (n *NearestRegion) Select(req SelectionRequest) (*Server, error) {
 		}
 	}
 	return nil, ErrNoServer
-} 
-
+}
 
 type AllocationLoadReader interface {
 	ActiveAllocations(serverID int) (int, error)
@@ -92,9 +93,8 @@ func (l *LowestLoadStrategy) Select(req SelectionRequest) (*Server, error) {
 	return selected, nil
 }
 
-
 type RoundRobinStrategy struct {
-	mu sync.Mutex
+	mu        sync.Mutex
 	nextIndex int
 }
 
@@ -125,8 +125,8 @@ func (s *ServerSelector) SetStrategy(strategy ServerSelectionStrategy) {
 
 func (s *ServerSelector) Select(req SelectionRequest) (*Server, error) {
 	if s.strategy == nil {
-        return nil, ErrUnknownStrategy
-    }
+		return nil, ErrUnknownStrategy
+	}
 	return s.strategy.Select(req)
 }
 

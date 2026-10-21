@@ -11,9 +11,9 @@ const (
 	ChainPendingC    = "PENDING_C"
 	ChainCompleted   = "COMPLETED"
 	ChainCompensated = "COMPENSATED"
-	eternus   = "Eternus"
-	ritualist = "Ritualist"
-	initiate  = "Initiate"
+	eternus          = "Eternus"
+	ritualist        = "Ritualist"
+	initiate         = "Initiate"
 )
 
 type MatchRequest struct {

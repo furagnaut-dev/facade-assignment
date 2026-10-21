@@ -230,9 +230,9 @@ func readRequest(scanner *bufio.Scanner, mode string) (system.MatchRequest, erro
 	}
 
 	return system.MatchRequest{
-		User:               system.NewUser(id, username, region, rank),
-		LobbyID:            id,
-		LatencyMS:          latency,
+		User:                system.NewUser(id, username, region, rank),
+		LobbyID:             id,
+		LatencyMS:           latency,
 		ForceCheatDetection: mode == "3",
 	}, nil
 }

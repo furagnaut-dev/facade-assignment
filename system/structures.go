@@ -13,10 +13,10 @@ var (
 )
 
 type User struct {
-	ID int
+	ID       int
 	Username string
 	Location string
-	Rank string
+	Rank     string
 }
 
 type Lobby struct {
@@ -24,10 +24,10 @@ type Lobby struct {
 }
 
 type Claim struct {
-	ID int
+	ID       int
 	PlayerID int
-	LobbyID int
-	status string
+	LobbyID  int
+	status   string
 }
 
 func NewUser(id int, username, location, rank string) *User {

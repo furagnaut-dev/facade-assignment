@@ -285,7 +285,6 @@ func TestLatencyValidatorSwitchesStrategy(t *testing.T) {
 	}
 }
 
-
 type fakeAllocationLoadReader struct {
 	counts map[int]int
 	err    error
@@ -355,9 +354,9 @@ func TestLatencyStrategiesApplyDifferentPolicies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
+		name     string
 		strategy LatencyStrategy
-		wantErr error
+		wantErr  error
 	}{
 		{"strict rejects latency", &StrictLatencyStrategy{}, ErrLatencyTooHigh},
 		{"standard rejects jitter", &StandardLatencyStrategy{}, ErrJitterTooHigh},

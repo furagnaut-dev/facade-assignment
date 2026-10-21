@@ -7,7 +7,7 @@ import (
 
 var Ranks = []string{"Initiate", "Ritualist", "Eternus"}
 
-type Rating struct {}
+type Rating struct{}
 
 func (Rating) ValidateRating(rank string) error {
 	for _, r := range Ranks {
@@ -32,7 +32,7 @@ func (c *Claim) LobbyFormation(id int) error {
 }
 
 type Party struct {
-	db *sql.DB
+	db     *sql.DB
 	rating Rating
 }
 

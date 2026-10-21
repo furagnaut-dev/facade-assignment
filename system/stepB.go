@@ -53,8 +53,8 @@ func (l LatencyChecker) Check(ms int) error {
 }
 
 type ServerAllocator struct {
-	db      *sql.DB
-	latency LatencyChecker
+	db               *sql.DB
+	latency          LatencyChecker
 	strategySelector *ServerStrategySelector
 }
 
@@ -68,19 +68,19 @@ func NewServerAllocator(db *sql.DB) *ServerAllocator {
 }
 
 func (s *ServerAllocator) selectServer(region string, servers []*Server, mode SelectionMode) (*Server, error) {
-    req := SelectionRequest{
-        Region:  region,
-        Servers: servers,
-        Mode:    mode,
-    }
+	req := SelectionRequest{
+		Region:  region,
+		Servers: servers,
+		Mode:    mode,
+	}
 
-    strategy, err := s.strategySelector.Choose(mode)
-    if err != nil {
-        return nil, err
-    }
+	strategy, err := s.strategySelector.Choose(mode)
+	if err != nil {
+		return nil, err
+	}
 
-    selector := NewServerSelector(strategy)
-    return selector.Select(req)
+	selector := NewServerSelector(strategy)
+	return selector.Select(req)
 }
 
 func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) error {
@@ -92,12 +92,12 @@ func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) err
 		return err
 	}
 	server, err := s.selectServer(
-    	region,
-    	availableServers,
-    	ModeLowestLoad,
+		region,
+		availableServers,
+		ModeLowestLoad,
 	)
 	if err != nil {
-    	return err
+		return err
 	}
 	server.status = "BUSY"
 	if err := UpdateServer(s.db, server); err != nil {
@@ -128,4 +128,3 @@ func (s *ServerAllocator) Compensate(claimID int) error {
 	server := &Server{ID: a.ServerID, status: "AVAILABLE"}
 	return UpdateServer(s.db, server)
 }
-

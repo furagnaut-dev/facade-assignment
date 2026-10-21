@@ -53,7 +53,7 @@ func SaveLobby(db *sql.DB, lobby *Lobby) error {
 func SaveClaim(db *sql.DB, claim *Claim) error {
 	_, err := db.Exec(
 		`INSERT INTO claims (ID, PlayerID, Status, LobbyID) VALUES (?, ?, ?, ?)`,
-		 claim.ID, claim.PlayerID, claim.status, claim.LobbyID)
+		claim.ID, claim.PlayerID, claim.status, claim.LobbyID)
 	return err
 }
 

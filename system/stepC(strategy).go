@@ -15,7 +15,7 @@ const (
 
 var (
 	ErrPacketLossTooHigh = errors.New("packets loss too high")
-	ErrJitterTooHigh = errors.New("jitter too high")
+	ErrJitterTooHigh     = errors.New("jitter too high")
 )
 
 type LatencyRequest struct {
