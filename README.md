@@ -1,79 +1,95 @@
-# Facade Pattern — System Architecture
+classDiagram
+    direction TB
 
-```mermaid
-flowchart TD
-    Client["Client<br/>Submits a match request"]
-    Facade["Facade<br/>Coordinates the complete workflow"]
+    class ServerSelectionStrategy {
+        <<interface>>
+        +Select(req SelectionRequest) Server
+    }
 
-    Client --> Facade
+    class NearestRegion {
+        +Select(req SelectionRequest) Server
+    }
 
-    subgraph StageA["Stage A — Request Preparation"]
-        A1["Validate and process request"]
-        A2["Prepare rating, party,<br/>claim and lobby data"]
-        A3["Persist initial state"]
-        A1 --> A2 --> A3
-    end
+    class LowestLoadStrategy {
+        -loadStore ServerLoadStore
+        +Select(req SelectionRequest) Server
+    }
 
-    subgraph StageB["Stage B — Resource Allocation"]
-        B1["Allocate a server"]
-        B2["Check server latency"]
-        B3["Persist allocation<br/>and workflow progress"]
-        B1 --> B2 --> B3
-    end
+    class RoundRobinStrategy {
+        -nextIndex int
+        +Select(req SelectionRequest) Server
+    }
 
-    subgraph StageC["Stage C — Verification and Completion"]
-        C1["Perform anti-cheat checks"]
-        C2["Record session information"]
-        C3["Mark workflow as completed"]
-        C1 --> C2 --> C3
-    end
+    class ServerSelector {
+        -strategy ServerSelectionStrategy
+        +SetStrategy(strategy)
+        +Select(req SelectionRequest) Server
+    }
 
-    Facade --> A1
-    A3 -->|Stage A succeeds| B1
-    B3 -->|Stage B succeeds| C1
+    class ServerStrategySelector {
+        -strategies map
+        +Register(mode, strategy)
+        +Choose(mode) ServerSelectionStrategy
+    }
 
-    C3 --> Success["Return successful result<br/>to the client"]
+    class ServerLoadStore {
+        <<interface>>
+        +CountActiveAllocations(serverID) int
+    }
 
-    subgraph Persistence["Persistence Layer — SQLite"]
-        DB[("Stored data and workflow state")]
-    end
+    class SQLiteServerLoadStore {
+        -db DB
+        +CountActiveAllocations(serverID) int
+    }
 
-    A3 -.-> DB
-    B3 -.-> DB
-    C3 -.-> DB
+    class LatencyStrategy {
+        <<interface>>
+        +Validate(req LatencyRequest) error
+    }
 
-    subgraph Recovery["Failure Handling and Compensation"]
-        FailB["Stage B fails"]
-        UndoA["Compensate Stage A"]
-        FailC["Stage C fails"]
-        UndoB["Release allocated resources<br/>and compensate Stage B"]
-        UndoA2["Compensate Stage A"]
-        Failed["Mark workflow as compensated"]
-    end
+    class StrictLatencyStrategy {
+        +Validate(req LatencyRequest) error
+    }
 
-    B2 -->|Allocation or latency failure| FailB
-    FailB --> UndoA
-    UndoA --> Failed
+    class StandardLatencyStrategy {
+        +Validate(req LatencyRequest) error
+    }
 
-    C1 -->|Verification failure| FailC
-    C2 -->|Session processing failure| FailC
-    FailC --> UndoB
-    UndoB --> UndoA2
-    UndoA2 --> Failed
+    class RelaxedLatencyStrategy {
+        +Validate(req LatencyRequest) error
+    }
 
-    Failed --> Error["Return failure result<br/>to the client"]
+    class LatencyValidator {
+        -strategy LatencyStrategy
+        +SetStrategy(strategy)
+        +Validate(req LatencyRequest) error
+    }
 
-    DB -.-> Restart["Application restarts"]
-    Restart --> Resume["Inspect persisted workflow state<br/>and recover pending work"]
-    Resume -.-> Facade
+    class LatencyStrategySelector {
+        -strategies map
+        +Choose(tier) LatencyStrategy
+    }
 
-    classDef facade fill:#dbeafe,stroke:#2563eb,color:#172554
-    classDef stage fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    classDef storage fill:#fef3c7,stroke:#d97706,color:#78350f
+    class ServerAllocator {
+        -strategySelector ServerStrategySelector
+        -latencyValidator LatencyValidator
+        +Process(claimID, region, latencyMS) error
+    }
 
-    class Facade facade
-    class A1,A2,A3,B1,B2,B3,C1,C2,C3 stage
-    class FailB,UndoA,FailC,UndoB,UndoA2,Failed,Error failure
-    class DB storage
-```
+    ServerSelectionStrategy <|.. NearestRegion
+    ServerSelectionStrategy <|.. LowestLoadStrategy
+    ServerSelectionStrategy <|.. RoundRobinStrategy
+
+    ServerSelector o--> ServerSelectionStrategy : delegates to
+    ServerStrategySelector ..> ServerSelectionStrategy : chooses
+    LowestLoadStrategy --> ServerLoadStore : reads load
+    ServerLoadStore <|.. SQLiteServerLoadStore
+    ServerAllocator --> ServerStrategySelector : selects server algorithm
+    ServerAllocator --> LatencyValidator : validates latency
+
+    LatencyStrategy <|.. StrictLatencyStrategy
+    LatencyStrategy <|.. StandardLatencyStrategy
+    LatencyStrategy <|.. RelaxedLatencyStrategy
+
+    LatencyValidator o--> LatencyStrategy : delegates to
+    LatencyStrategySelector ..> LatencyStrategy : chooses
