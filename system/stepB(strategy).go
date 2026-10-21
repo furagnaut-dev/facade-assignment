@@ -40,18 +40,32 @@ func (n *NearestRegion) Select(req SelectionRequest) (*Server, error) {
 	return nil, ErrNoServer
 } 
 
-type LowestLoadStrategy struct {
+
+type AllocationLoadReader interface {
+	ActiveAllocations(serverID int) (int, error)
+}
+
+type sqlAllocationLoadReader struct {
 	db *sql.DB
 }
 
+func (r *sqlAllocationLoadReader) ActiveAllocations(serverID int) (int, error) {
+	return CountActiveAllocations(r.db, serverID)
+}
+
+type LowestLoadStrategy struct {
+	loadReader AllocationLoadReader
+}
+
 func NewLowestLoad(db *sql.DB) *LowestLoadStrategy {
-	return &LowestLoadStrategy{db: db}
+	return NewLowestLoadWithReader(&sqlAllocationLoadReader{db: db})
+}
+
+func NewLowestLoadWithReader(reader AllocationLoadReader) *LowestLoadStrategy {
+	return &LowestLoadStrategy{loadReader: reader}
 }
 
 func (l *LowestLoadStrategy) Select(req SelectionRequest) (*Server, error) {
-	if len(req.Servers) == 0 {
-		return nil, ErrNoServer
-	}
 	var selected *Server
 	lowestCount := 0
 
@@ -59,20 +73,25 @@ func (l *LowestLoadStrategy) Select(req SelectionRequest) (*Server, error) {
 		if server.Region != req.Region {
 			continue
 		}
-		count, err := CountActiveAllocations(l.db, server.ID)
+
+		count, err := l.loadReader.ActiveAllocations(server.ID)
 		if err != nil {
 			return nil, err
 		}
+
 		if selected == nil || count < lowestCount {
 			selected = server
 			lowestCount = count
-		} 
+		}
 	}
+
 	if selected == nil {
 		return nil, ErrNoServer
 	}
+
 	return selected, nil
 }
+
 
 type RoundRobinStrategy struct {
 	mu sync.Mutex
