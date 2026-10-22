@@ -51,9 +51,6 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-
-	// Seed servers only when the database has no existing servers.
-	// This avoids inserting duplicate IDs after restarting the program.
 	servers, err := system.GetAvailableServers(db)
 	if err != nil {
 		log.Fatal(err)
@@ -86,6 +83,7 @@ func main() {
 		fmt.Println("6. Admin: compensate pending match")
 		fmt.Println("7. Demo without Step C")
 		fmt.Println("8. Demo Strategy patterns")
+		fmt.Println("9. Switch server strategy")
 		fmt.Println("0. Exit")
 		fmt.Print("Your choice: ")
 
@@ -122,6 +120,10 @@ func main() {
 				}
 			} else {
 				fmt.Println("Match completed successfully.")
+			}
+
+			if a, e := system.FindAllocation(db, result.ClaimID); e == nil {
+				fmt.Printf("Allocated server ID: %d (strategy: %s)\n", a.ServerID, workflow.ServerStrategy())
 			}
 
 		case "4":
@@ -169,7 +171,26 @@ func main() {
 
 		case "8":
 			demoStrategies(db)
-
+			demoSelectorRules(db)
+		case "9":
+			fmt.Println("1. nearest, 2. lowest load, 3. round robin")
+			modes := map[int]system.SelectionMode{
+				1: system.ModeNearestRegion,
+				2: system.ModeLowestLoad,
+				3: system.ModeRoundRobin,
+			}
+			mode, ok := modes[readInt(scanner, "Strategy: ")]
+			if !ok {
+				fmt.Println("Unknown strategy.")
+				continue
+			}
+			if err := workflow.SetServerMode(mode); err != nil {
+				fmt.Println("Switch failed:", err)
+			} else {
+				fmt.Println("Server strategy is now:", mode)
+			}
+		case "10":
+				fmt.Println("Selector chose:", workflow.ServerStrategy())
 		case "0":
 			return
 
@@ -359,4 +380,67 @@ func validationResult(err error) string {
 		return err.Error()
 	}
 	return "accepted"
+}
+
+func demoSelectorRules(db *sql.DB) {
+	fmt.Println("\nSelector rules: automatic choice from the situation")
+
+	selector := system.NewServerStrategySelector()
+	selector.Register(system.ModeNearestRegion, &system.NearestRegion{})
+	selector.Register(system.ModeLowestLoad, system.NewLowestLoad(db))
+	selector.Register(system.ModeRoundRobin, &system.RoundRobinStrategy{})
+
+	situations := []struct {
+		label string
+		ctx   system.SelectionContext
+	}{
+		{"Eternus, short queue", system.SelectionContext{Rank: eternus, QueueSize: 5}},
+		{"Initiate, short queue", system.SelectionContext{Rank: initiate, QueueSize: 5}},
+		{"Initiate, queue of 101", system.SelectionContext{Rank: initiate, QueueSize: 101}},
+	}
+	for _, s := range situations {
+		strategy, err := selector.ChooseFor(s.ctx)
+		if err != nil {
+			fmt.Println(s.label, "error:", err)
+			continue
+		}
+		fmt.Printf("%-24s -> %T\n", s.label, strategy)
+	}
+
+	fmt.Println("\nLatency tier chosen by rank")
+	latencySelector := system.NewLatencyStrategySelector()
+	for _, rank := range []string{eternus, ritualist, initiate} {
+		strategy, err := latencySelector.ChooseForRank(rank)
+		if err != nil {
+			fmt.Println(rank, "error:", err)
+			continue
+		}
+		fmt.Printf("%-10s -> %T\n", rank, strategy)
+	}
+
+	fmt.Println("\nSwapping the data source behind LowestLoad")
+	servers, err := system.GetAvailableServers(db)
+	if err != nil {
+		fmt.Println("Load available servers:", err)
+		return
+	}
+	req := system.SelectionRequest{Region: as, Servers: servers}
+
+	loads := map[int]int{}
+	first := true
+	for _, srv := range servers {
+		if srv.Region == as && first {
+			loads[srv.ID] = 5
+			first = false
+		}
+	}
+
+
+	sqlStrategy := system.NewLowestLoad(db)
+	memStrategy := system.NewLowestLoadWithReader(system.InMemoryLoadReader{Loads: loads})
+
+	server, err := sqlStrategy.Select(req)
+	printSelectedServer("LowestLoad with SQL source", server, err)
+	server, err = memStrategy.Select(req)
+	printSelectedServer("LowestLoad with in-memory source", server, err)
 }

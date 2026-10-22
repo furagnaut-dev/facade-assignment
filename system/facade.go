@@ -107,6 +107,11 @@ func (f *MatchmakingFacade) Resume(id int, req MatchRequest) error {
 	}
 	return nil
 }
+func (f *MatchmakingFacade) SetServerMode(mode SelectionMode) error {
+	return f.servers.SetMode(mode)
+}
+
+func (f *MatchmakingFacade) ServerStrategy() string { return f.servers.Current() }
 func (f *MatchmakingFacade) Inspect(id int) (MatchState, error) {
 	state := MatchState{ClaimID: id}
 	var err error

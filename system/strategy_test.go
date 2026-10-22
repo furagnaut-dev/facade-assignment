@@ -3,6 +3,7 @@ package system
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -343,6 +344,102 @@ func TestLowestLoadPropagatesReaderError(t *testing.T) {
 	})
 	if !errors.Is(err, readerErr) {
 		t.Fatalf("error = %v, want %v", err, readerErr)
+	}
+}
+
+func TestServerSelectorRules(t *testing.T) {
+	sel := NewServerStrategySelector()
+	sel.Register(ModeNearestRegion, &NearestRegion{})
+	sel.Register(ModeLowestLoad, NewLowestLoadWithReader(&fakeAllocationLoadReader{}))
+	sel.Register(ModeRoundRobin, &RoundRobinStrategy{})
+
+	tests := []struct {
+		name string
+		ctx  SelectionContext
+		want string
+	}{
+		{"heavy queue", SelectionContext{Rank: "Initiate", QueueSize: 101}, "*system.RoundRobinStrategy"},
+		{"queue boundary", SelectionContext{Rank: "Initiate", QueueSize: 100}, "*system.LowestLoadStrategy"},
+		{"top rank", SelectionContext{Rank: "Eternus", QueueSize: 5}, "*system.NearestRegion"},
+		{"default", SelectionContext{Rank: "Ritualist", QueueSize: 5}, "*system.LowestLoadStrategy"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := sel.ChooseFor(tt.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprintf("%T", got) != tt.want {
+				t.Fatalf("got %T, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLatencySelectorRankRules(t *testing.T) {
+	sel := NewLatencyStrategySelector()
+	tests := []struct {
+		rank, want string
+	}{
+		{"Eternus", "*system.StrictLatencyStrategy"},
+		{"Ritualist", "*system.StandardLatencyStrategy"},
+		{"Initiate", "*system.RelaxedLatencyStrategy"},
+	}
+	for _, tt := range tests {
+		got, err := sel.ChooseForRank(tt.rank)
+		if err != nil || fmt.Sprintf("%T", got) != tt.want {
+			t.Fatalf("%s: got %T, err %v", tt.rank, got, err)
+		}
+	}
+	if _, err := sel.ChooseForRank("Nobody"); !errors.Is(err, ErrUnknownStrategy) {
+		t.Fatalf("error = %v, want ErrUnknownStrategy", err)
+	}
+}
+
+func TestRoundRobinStaysInRegion(t *testing.T) {
+	rr := &RoundRobinStrategy{}
+	req := SelectionRequest{Region: "Asia", Servers: []*Server{
+		NewServer(1, "Asia"), NewServer(2, "Europe"), NewServer(3, "Asia"),
+	}}
+	for _, want := range []int{1, 3, 1} {
+		got, err := rr.Select(req)
+		if err != nil || got.ID != want {
+			t.Fatalf("got %v, %v, want ID %d", got, err, want)
+		}
+	}
+}
+
+func TestAllocatorSwitchesStrategyAtRuntime(t *testing.T) {
+	a := NewServerAllocatorWithReader(nil, &fakeAllocationLoadReader{
+		counts: map[int]int{1: 9, 2: 0},
+	})
+	servers := []*Server{NewServer(1, "Asia"), NewServer(2, "Asia"), NewServer(3, "Europe")}
+
+	pick := func() int {
+		s, err := a.selectServer("Asia", servers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.ID
+	}
+
+	if got := pick(); got != 2 {
+		t.Fatalf("lowest load picked %d, want 2", got)
+	}
+	if err := a.SetMode(ModeNearestRegion); err != nil {
+		t.Fatal(err)
+	}
+	if got := pick(); got != 1 {
+		t.Fatalf("nearest picked %d, want 1", got)
+	}
+	if err := a.SetMode(ModeRoundRobin); err != nil {
+		t.Fatal(err)
+	}
+	if first, second := pick(), pick(); first != 1 || second != 2 {
+		t.Fatalf("round robin picked %d then %d, want 1 then 2", first, second)
+	}
+	if err := a.SetMode("bogus"); !errors.Is(err, ErrUnknownStrategy) {
+		t.Fatalf("error = %v, want ErrUnknownStrategy", err)
 	}
 }
 

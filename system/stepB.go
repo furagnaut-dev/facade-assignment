@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 const (
@@ -56,31 +57,65 @@ type ServerAllocator struct {
 	db               *sql.DB
 	latency          LatencyChecker
 	strategySelector *ServerStrategySelector
+	mu               sync.Mutex
+	selector         *ServerSelector
+	current string
 }
 
 func NewServerAllocator(db *sql.DB) *ServerAllocator {
-	strategySelector := NewServerStrategySelector()
-
-	strategySelector.Register(ModeNearestRegion, &NearestRegion{})
-	strategySelector.Register(ModeLowestLoad, NewLowestLoad(db))
-	strategySelector.Register(ModeRoundRobin, &RoundRobinStrategy{})
-	return &ServerAllocator{db: db, latency: LatencyChecker{MaxLatencyMS: 150}, strategySelector: strategySelector}
+	return NewServerAllocatorWithReader(db, &sqlAllocationLoadReader{db: db})
 }
 
-func (s *ServerAllocator) selectServer(region string, servers []*Server, mode SelectionMode) (*Server, error) {
-	req := SelectionRequest{
-		Region:  region,
-		Servers: servers,
-		Mode:    mode,
-	}
+func NewServerAllocatorWithReader(db *sql.DB, reader AllocationLoadReader) *ServerAllocator {
+	strategySelector := NewServerStrategySelector()
+	strategySelector.Register(ModeNearestRegion, &NearestRegion{})
+	strategySelector.Register(ModeLowestLoad, NewLowestLoadWithReader(reader))
+	strategySelector.Register(ModeRoundRobin, &RoundRobinStrategy{})
 
+	initial, _ := strategySelector.Choose(ModeLowestLoad)
+	return &ServerAllocator{
+		db:               db,
+		latency:          LatencyChecker{MaxLatencyMS: 150},
+		strategySelector: strategySelector,
+		selector:         NewServerSelector(initial),
+		current: string(ModeLowestLoad),
+	}
+}
+
+func (s *ServerAllocator) SetMode(mode SelectionMode) error {
 	strategy, err := s.strategySelector.Choose(mode)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.selector.SetStrategy(strategy)
+	s.current = string(mode)
+	return nil
+}
 
-	selector := NewServerSelector(strategy)
-	return selector.Select(req)
+func (s *ServerAllocator) SetBySituation(c SelectionContext) error {
+	strategy, err := s.strategySelector.ChooseFor(c)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.selector.SetStrategy(strategy)
+	s.current = fmt.Sprintf("auto -> %T", strategy)
+	return nil
+}
+
+func (s *ServerAllocator) selectServer(region string, servers []*Server) (*Server, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.selector.Select(SelectionRequest{Region: region, Servers: servers})
+}
+
+func (s *ServerAllocator) Current() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.current
 }
 
 func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) error {
@@ -91,11 +126,7 @@ func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) err
 	if err != nil {
 		return err
 	}
-	server, err := s.selectServer(
-		region,
-		availableServers,
-		ModeLowestLoad,
-	)
+	server, err := s.selectServer(region, availableServers)
 	if err != nil {
 		return err
 	}
@@ -111,6 +142,11 @@ func (s *ServerAllocator) Process(claimID int, region string, latencyMS int) err
 	}
 	return nil
 }
+
+type InMemoryLoadReader struct{ Loads map[int]int }
+
+func (r InMemoryLoadReader) ActiveAllocations(id int) (int, error) { return r.Loads[id], nil }
+
 func (s *ServerAllocator) Compensate(claimID int) error {
 	a, err := FindAllocation(s.db, claimID)
 	if errors.Is(err, sql.ErrNoRows) {

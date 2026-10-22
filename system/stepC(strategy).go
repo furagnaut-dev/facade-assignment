@@ -137,3 +137,15 @@ func (s *LatencyStrategySelector) Choose(tier ServiceTier) (LatencyStrategy, err
 	}
 	return strategy, nil
 }
+
+func (s *LatencyStrategySelector) ChooseForRank(rank string) (LatencyStrategy, error) {
+	switch rank {
+	case "Eternus":
+		return s.Choose(TierStrict)
+	case "Ritualist":
+		return s.Choose(TierStandard)
+	case "Initiate":
+		return s.Choose(TierRelaxed)
+	}
+	return nil, ErrUnknownStrategy
+}

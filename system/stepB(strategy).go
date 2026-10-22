@@ -102,12 +102,17 @@ func (r *RoundRobinStrategy) Select(req SelectionRequest) (*Server, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if len(req.Servers) == 0 {
+	var pool []*Server
+	for _, s := range req.Servers {
+		if s.Region == req.Region {
+			pool = append(pool, s)
+		}
+	}
+	if len(pool) == 0 {
 		return nil, ErrNoServer
 	}
-
-	selected := req.Servers[r.nextIndex%len(req.Servers)]
-	r.nextIndex = (r.nextIndex + 1) % len(req.Servers)
+	selected := pool[r.nextIndex%len(pool)]
+	r.nextIndex++
 	return selected, nil
 }
 
@@ -150,4 +155,21 @@ func (s *ServerStrategySelector) Choose(mode SelectionMode) (ServerSelectionStra
 		return nil, ErrUnknownStrategy
 	}
 	return strategy, nil
+}
+
+type SelectionContext struct {
+	Rank      string
+	QueueSize int
+	Hour      int
+}
+
+func (s *ServerStrategySelector) ChooseFor(c SelectionContext) (ServerSelectionStrategy, error) {
+	switch {
+	case c.QueueSize > 100:
+		return s.Choose(ModeRoundRobin)
+	case c.Rank == "Eternus":
+		return s.Choose(ModeNearestRegion)
+	default:
+		return s.Choose(ModeLowestLoad)
+	}
 }
